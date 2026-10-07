@@ -1,0 +1,154 @@
+---
+# DHIS2 DEV (2.44 / master) stack for local development and testing only.
+# PostgreSQL/PostGIS + Redis + DHIS2 configured through dhis.conf.
+# Image: https://hub.docker.com/r/dhis2/core-dev
+
+volumes:
+  dhis2_home:  # /opt/dhis2: generated dhis.conf + files/ (file resources, apps)
+  db_password:
+  glowroot:
+  pg_data:
+  redis_data:
+  db_dump:
+
+services:
+
+  # Generates a random database password on first start (kept in the db_password volume; set
+  # DB_PASSWORD to use your own instead) and writes dhis.conf from it on every start.
+  pass_init:
+    image: busybox
+    volumes:
+      - db_password:/secrets
+      - dhis2_home:/opt/dhis2
+    environment:
+      DB_PASSWORD: ${DB_PASSWORD:-}
+      SERVER_BASE_URL: ${SERVER_BASE_URL:-http://localhost:8080}
+    command: >
+      sh -c '
+      if [ ! -s /secrets/db_password ]; then
+        if [ -n "$$DB_PASSWORD" ]; then printf "%s" "$$DB_PASSWORD" > /secrets/db_password ;
+        else tr -dc A-Za-z0-9 < /dev/urandom | head -c 32 > /secrets/db_password ; fi ;
+        echo "[INFO] Database password generated in volume db_password" ;
+      fi ;
+      chmod 444 /secrets/db_password ;
+      mkdir -p /opt/dhis2/files ;
+      {
+        echo "connection.driver_class = org.postgresql.Driver" ;
+        echo "connection.url = jdbc:postgresql://database/dhis2" ;
+        echo "connection.username = dhis" ;
+        echo "connection.password = $$(cat /secrets/db_password)" ;
+        echo "redis.enabled = on" ;
+        echo "redis.cache.invalidation.enabled = on" ;
+        echo "redis.host = redis" ;
+        echo "redis.port = 6379" ;
+        echo "leader.time.to.live.minutes = 4" ;
+        echo "server.base.url = $$SERVER_BASE_URL" ;
+      } > /opt/dhis2/dhis.conf ;
+      chmod -R a+rwX /opt/dhis2
+      '
+
+  # Downloads the official Glowroot distribution into a named volume (no local folder needed)
+  glowroot_init:
+    image: busybox
+    volumes:
+      - glowroot:/opt/glowroot
+    environment:
+      GLOWROOT_VERSION: ${GLOWROOT_VERSION:-0.14.2}
+    command: >
+      sh -c '
+      if [ ! -f /opt/glowroot/glowroot.jar ]; then
+        wget -O /tmp/glowroot.zip https://github.com/glowroot/glowroot/releases/download/v$$GLOWROOT_VERSION/glowroot-$$GLOWROOT_VERSION-dist.zip &&
+        unzip -q /tmp/glowroot.zip -d /tmp &&
+        cp -r /tmp/glowroot/. /opt/glowroot/ &&
+        echo "{\"web\":{\"port\":4000,\"bindAddress\":\"0.0.0.0\"}}" > /opt/glowroot/admin.json ;
+      fi ;
+      chmod -R a+rwX /opt/glowroot
+      '
+
+  # Optional: fetches a database dump into a volume that PostgreSQL loads on its FIRST start
+  # (empty pg_data only). Set DHIS2_DB_DUMP_URL (http/https) or put a *.sql / *.sql.gz file in
+  # ./db-dump/ on the host. With neither, nothing is loaded and DHIS2 creates an empty DB.
+  db_dump:
+    image: busybox
+    volumes:
+      - db_dump:/opt/dump
+      - ./db-dump:/local-dump:ro
+    environment:
+      DHIS2_DB_DUMP_URL: ${DHIS2_DB_DUMP_URL:-}
+    working_dir: /opt/dump
+    command: >
+      sh -c '
+      if [ -n "$$DHIS2_DB_DUMP_URL" ]; then
+        if [ -f dump.sql.gz ]; then echo "dump.sql.gz already downloaded" ;
+        else wget -O dump.sql.gz.part "$$DHIS2_DB_DUMP_URL" && mv dump.sql.gz.part dump.sql.gz ; fi ;
+      fi ;
+      for f in /local-dump/*.sql /local-dump/*.sql.gz ; do
+        [ -f "$$f" ] && cp "$$f" /opt/dump/ && echo "copied $$f" ;
+      done ;
+      exit 0
+      '
+
+  database:
+    image: postgis/postgis:${POSTGIS_TAG:-16-3.5}
+    platform: ${DB_PLATFORM:-linux/amd64}  # official image has no arm64 build; emulated on Apple Silicon
+    restart: unless-stopped
+    depends_on:
+      db_dump:
+        condition: service_completed_successfully
+      pass_init:
+        condition: service_completed_successfully
+    volumes:
+      - db_password:/secrets:ro
+      - pg_data:/var/lib/postgresql/data
+      - db_dump:/docker-entrypoint-initdb.d:ro
+    environment:
+      POSTGRES_DB: dhis2
+      POSTGRES_USER: dhis
+      POSTGRES_PASSWORD_FILE: /secrets/db_password
+    shm_size: 256mb
+    command: >
+      postgres
+        -c "listen_addresses=*"
+        -c "synchronous_commit=off"
+        -c "checkpoint_completion_target=0.8"
+        -c "wal_writer_delay=10000ms"
+        -c "random_page_cost=1.1"
+        -c "max_locks_per_transaction=96"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "dhis", "-d", "dhis2"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 2s
+
+  redis:
+    image: redis:${REDIS_TAG:-7}
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  dhis2:
+    image: dhis2/core-dev:${DHIS2_TAG:-latest}  # latest = development version (2.44)
+    restart: unless-stopped
+    depends_on:
+      pass_init:
+        condition: service_completed_successfully
+      glowroot_init:
+        condition: service_completed_successfully
+      database:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      JAVA_OPTS: "-javaagent:/opt/glowroot/glowroot.jar"
+    ports:
+      - "8080:8080"
+      - "127.0.0.1:4000:4000"  # Glowroot UI (localhost only, it has no authentication)
+    volumes:
+      - glowroot:/opt/glowroot
+      - dhis2_home:/opt/dhis2
