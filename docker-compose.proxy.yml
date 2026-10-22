@@ -1,0 +1,29 @@
+---
+# Optional reverse proxy example (Caddy, automatic HTTPS). Use it as an override:
+#   SERVER_BASE_URL=https://${PROXY_DOMAIN} docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+# See "Reverse proxy" in the README. Requires Docker Compose 2.24+ (uses !reset).
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+services:
+  dhis2:
+    ports: !reset []  # only the proxy is reachable from outside; Glowroot stays on the internal network
+    expose:
+      - "8080"
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - dhis2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PROXY_DOMAIN: ${PROXY_DOMAIN:-localhost}  # use a real DNS name for a public Let's Encrypt cert
+    volumes:
+      - ./proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config

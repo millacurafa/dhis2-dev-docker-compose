@@ -33,6 +33,7 @@ Only official images are used, and no local folder is required (everything lives
 - [Glowroot](#glowroot)
 - [Volumes and data persistence](#volumes-and-data-persistence)
 - [Common operations](#common-operations)
+- [Reverse proxy (optional)](#reverse-proxy-optional)
 - [Troubleshooting](#troubleshooting)
 
 ## Architecture
@@ -254,6 +255,29 @@ DHIS2 can run several nodes sharing Redis and the files storage. In Compose, rem
 port mappings from `dhis2` (or map ranges) and run `docker compose up -d --scale dhis2=2`, putting a
 reverse proxy in front. Glowroot is per-JVM and its volume is shared, so keep it to one node unless
 you give each its own volume.
+
+## Reverse proxy (optional)
+
+[docker-compose.proxy.yml](./docker-compose.proxy.yml) and [proxy/Caddyfile](./proxy/Caddyfile) are an example
+that puts [Caddy](https://caddyserver.com/) in front of DHIS2 with automatic HTTPS. It unpublishes port 8080,
+so DHIS2 is only reachable through the proxy (requires Docker Compose 2.24+).
+
+```bash
+# Local test (Caddy internal certificate, accept the browser warning)
+PROXY_DOMAIN=localhost SERVER_BASE_URL=https://localhost docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+
+# Public host (DNS must point to the server, ports 80/443 open): real Let's Encrypt certificate
+PROXY_DOMAIN=dhis2.example.com SERVER_BASE_URL=https://dhis2.example.com docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d
+```
+
+Set `SERVER_BASE_URL` to the public URL (it becomes `server.base.url` in `dhis.conf`). Use the same `-f` flags
+for every later command (`logs`, `down`, ...), or set `COMPOSE_FILE=docker-compose.yml:docker-compose.proxy.yml` in `.env`.
+Using nginx, Traefik or another proxy instead? Forward to `dhis2:8080` on the Compose network, pass
+`X-Forwarded-For/-Proto/-Host`, and allow large uploads and long timeouts.
+
+## Sharing on the DHIS2 Community
+
+A ready-to-use announcement text is in [docs/community-post.md](./docs/community-post.md).
 
 ## Troubleshooting
 

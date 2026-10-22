@@ -1,0 +1,13 @@
+{$PROXY_DOMAIN:localhost} {
+	encode gzip
+	request_body {
+		max_size 100MB
+	}
+	# Caddy sends X-Forwarded-For/-Proto/-Host to the upstream by default.
+	reverse_proxy dhis2:8080 {
+		flush_interval -1
+		transport http {
+			read_timeout 5m
+		}
+	}
+}
