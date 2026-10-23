@@ -296,7 +296,7 @@ A ready-to-use announcement text is in [docs/community-post.md](./docs/community
 
 Built with ❤️ by MillacuraFA
 
-<iframe src="https://github.com/sponsors/millacurafa/button" title="Sponsor millacurafa" height="32" width="114" style="border: 0; border-radius: 6px;"></iframe>
+[![Sponsor MillacuraFA](https://github.com/sql-achilles/achilles/assets/placeholder/sponsor-button.svg)](https://github.com/sponsors/millacuraFA)
 
 ## License
 
