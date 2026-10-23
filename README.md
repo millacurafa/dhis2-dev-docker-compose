@@ -294,9 +294,7 @@ A ready-to-use announcement text is in [docs/community-post.md](./docs/community
 
 ## Acknowledgments
 
-Built with ❤️ by MillacuraFA
-
-[![Sponsor MillacuraFA](https://github.com/sql-achilles/achilles/assets/placeholder/sponsor-button.svg)](https://github.com/sponsors/millacuraFA)
+Built with ❤️ by MillacuraFA [![Sponsor Me](https://img.shields.io/badge/Sponsor-%E2%99%A5-ea4aa9?style=for-the-badge&logo=githubsponsors)](https://github.com/sponsors/millacuraFA)
 
 ## License
 
